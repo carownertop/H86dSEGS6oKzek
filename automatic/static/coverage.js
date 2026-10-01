@@ -14,6 +14,7 @@
     colFilters: {},
     openFilter: null,
     openPicker: null,
+    openGroups: {},
     booted: false,
   };
 
@@ -824,7 +825,8 @@
     const timeline = events.length
       ? "<div class=\"cov-timeline\">" + events.map(function (ev) {
           const head = escapeHtml(ev.label || ev.kind || "Событие") +
-            (ev.at ? " · " + escapeHtml(ev.at) : "");
+            (ev.at ? " · " + escapeHtml(ev.at) : "") +
+            (ev.company_name ? " · " + escapeHtml(ev.company_name) : "");
           const people = [];
           if (ev.mop) people.push("Ответственный: " + escapeHtml(ev.mop));
           if (ev.author) people.push("Создал: " + escapeHtml(ev.author));
@@ -855,9 +857,13 @@
       : "<p class=\"hint\" style=\"margin:8px 0 0\">В периоде нет дел/звонков/писем и нет открытых сделок/СП</p>";
     panel.innerHTML =
       "<div class=\"cov-detail-top\">" +
+      "<div class=\"cov-detail-head\">" +
       "<h3><a class=\"file-link\" href=\"" + escapeHtml(row.url) +
       "\" target=\"_blank\" rel=\"noopener\">" + escapeHtml(row.name) + "</a></h3>" +
-      "<span class=\"cov-detail-count\">" + (row.events_count || events.length) + " событий</span></div>" +
+      "<span class=\"cov-detail-count\">" + (row.events_count || events.length) + " событий</span>" +
+      "</div>" +
+      "<button type=\"button\" class=\"cov-detail-close\" title=\"Закрыть\">✕</button>" +
+      "</div>" +
       "<div class=\"cov-detail-meta\">" +
       "<span>" + badge(row) + "</span>" +
       "<span>" + escapeHtml(cardMopCopy(row.universe || STATE.universe).detail) + ": " + escapeHtml(row.mop) + "</span>" +
@@ -878,8 +884,13 @@
           linkList(row.sp_links) + "</div>"
         : "") +
       "<h4 class=\"cov-events-title\">Лента дел за период</h4>" + timeline;
+    const closeBtn = panel.querySelector(".cov-detail-close");
+    if (closeBtn) closeBtn.addEventListener("click", function () { selectRow(null); });
   }
   function selectRow(row) {
+    if (row && STATE.selected && STATE.selected.id === row.id) {
+      row = null;
+    }
     STATE.selected = row || null;
     paintTable();
     paintDetail(STATE.selected);
@@ -889,6 +900,20 @@
     }
   }
   function paintTable() {
+    // .cov-wrap has its own max-height + overflow:auto scrollbar (long tables
+    // don't scroll the whole page). Rebuilding replaces that div outright, so
+    // its scrollTop resets to 0 — save/restore it, not window.scrollY.
+    const oldWrap = document.querySelector("#cov-table .cov-wrap");
+    const wrapScrollTop = oldWrap ? oldWrap.scrollTop : 0;
+    const wrapScrollLeft = oldWrap ? oldWrap.scrollLeft : 0;
+    _paintTableInner();
+    const newWrap = document.querySelector("#cov-table .cov-wrap");
+    if (newWrap) {
+      newWrap.scrollTop = wrapScrollTop;
+      newWrap.scrollLeft = wrapScrollLeft;
+    }
+  }
+  function _paintTableInner() {
     STATE.view = visibleRows();
     const meta = $("cov-view-meta");
     if (meta) {
@@ -914,33 +939,62 @@
       const w = STATE.colWidths[key] || COL_DEFAULT_W[key] || 120;
       return "width:" + w + "px;min-width:" + w + "px;max-width:" + w + "px";
     }
-    const bodyHtml = STATE.view.length
-      ? STATE.view.map(function (row, i) {
-          const on = STATE.selected && STATE.selected.id === row.id ? " on" : "";
-          const subject = row.last_subject || row.last_text || "—";
-          const short = subject.length > 70 ? subject.slice(0, 69) + "…" : subject;
-          const n = row.events_count || (row.events || []).length || 0;
-          return "<tr class=\"cov-row" + on + "\" data-i=\"" + i + "\">" +
-            "<td style=\"" + colStyle("name") + "\"><a class=\"file-link\" href=\"" + escapeHtml(row.url) +
-            "\" target=\"_blank\" rel=\"noopener\">" + escapeHtml(row.name) + "</a></td>" +
-            "<td style=\"" + colStyle("mop") + "\">" + escapeHtml(row.mop) + "</td>" +
-            "<td style=\"" + colStyle("contact_responsibles") + "\">" +
-            escapeHtml(row.contact_responsibles || "—") + "</td>" +
-            "<td style=\"" + colStyle("rfm") + "\">" + escapeHtml(row.rfm) + "</td>" +
-            "<td style=\"" + colStyle("coverage_title") + "\">" + badge(row) + "</td>" +
-            "<td style=\"" + colStyle("event_types") + "\">" + escapeHtml(row.event_types || "—") + "</td>" +
-            "<td class=\"cov-subject\" style=\"" + colStyle("last_subject") + "\" title=\"" + escapeHtml(subject) + "\">" +
-            escapeHtml(short) + "</td>" +
-            "<td style=\"" + colStyle("events_count") + "\"><button type=\"button\" class=\"cov-events-btn\" data-i=\"" +
-            i + "\">" + n + " →</button></td>" +
-            "<td style=\"" + colStyle("has_planned") + "\">" + (row.has_planned ? "да" : "") + "</td>" +
-            "<td style=\"" + colStyle("has_overdue") + "\">" + (row.has_overdue ? "да" : "") + "</td>" +
-            "<td style=\"" + colStyle("has_deal") + "\">" + (row.has_deal ? "да" : "") + "</td>" +
-            "<td class=\"cov-links\" style=\"" + colStyle("deal_links") + "\">" + linkList(row.deal_links) + "</td>" +
-            "<td style=\"" + colStyle("has_sp") + "\">" + (row.has_sp ? "да" : "") + "</td>" +
-            "<td class=\"cov-links\" style=\"" + colStyle("sp_links") + "\">" + linkList(row.sp_links) + "</td></tr>";
-        }).join("")
-      : "<tr><td colspan=\"" + COLS.length + "\" class=\"empty\">Нет строк под текущий поиск и фильтры столбцов.</td></tr>";
+    const bodyPieces = [];
+    if (!STATE.view.length) {
+      bodyPieces.push("<tr><td colspan=\"" + COLS.length + "\" class=\"empty\">Нет строк под текущий поиск и фильтры столбцов.</td></tr>");
+    } else {
+      STATE.view.forEach(function (row, i) {
+        const on = STATE.selected && STATE.selected.id === row.id ? " on" : "";
+        const subject = row.last_subject || row.last_text || "—";
+        const short = subject.length > 70 ? subject.slice(0, 69) + "…" : subject;
+        const n = row.events_count || (row.events || []).length || 0;
+        const multi = (row.members_count || 1) > 1;
+        const gid = row.group_id;
+        const open = multi && STATE.openGroups[gid];
+        const exp = multi
+          ? "<button type=\"button\" class=\"cov-exp\" data-gid=\"" + escapeHtml(gid) +
+            "\" aria-expanded=\"" + (open ? "true" : "false") + "\" title=\"Состав группы компаний (" +
+            row.members_count + ")\">" + (open ? "−" : "+") + "</button>"
+          : "";
+        bodyPieces.push(
+          "<tr class=\"cov-row" + on + "\" data-i=\"" + i + "\">" +
+          "<td style=\"" + colStyle("name") + "\"><span class=\"cov-name-row\"><a class=\"file-link\" href=\"" + escapeHtml(row.url) +
+          "\" target=\"_blank\" rel=\"noopener\">" + escapeHtml(row.name) + "</a>" + exp + "</span></td>" +
+          "<td style=\"" + colStyle("mop") + "\">" + escapeHtml(row.mop) + "</td>" +
+          "<td style=\"" + colStyle("contact_responsibles") + "\">" +
+          escapeHtml(row.contact_responsibles || "—") + "</td>" +
+          "<td style=\"" + colStyle("rfm") + "\">" + escapeHtml(row.rfm) + "</td>" +
+          "<td style=\"" + colStyle("coverage_title") + "\">" + badge(row) + "</td>" +
+          "<td style=\"" + colStyle("event_types") + "\">" + escapeHtml(row.event_types || "—") + "</td>" +
+          "<td class=\"cov-subject\" style=\"" + colStyle("last_subject") + "\" title=\"" + escapeHtml(subject) + "\">" +
+          escapeHtml(short) + "</td>" +
+          "<td style=\"" + colStyle("events_count") + "\"><button type=\"button\" class=\"cov-events-btn\" data-i=\"" +
+          i + "\">" + n + " →</button></td>" +
+          "<td style=\"" + colStyle("has_planned") + "\">" + (row.has_planned ? "да" : "") + "</td>" +
+          "<td style=\"" + colStyle("has_overdue") + "\">" + (row.has_overdue ? "да" : "") + "</td>" +
+          "<td style=\"" + colStyle("has_deal") + "\">" + (row.has_deal ? "да" : "") + "</td>" +
+          "<td class=\"cov-links\" style=\"" + colStyle("deal_links") + "\">" + linkList(row.deal_links) + "</td>" +
+          "<td style=\"" + colStyle("has_sp") + "\">" + (row.has_sp ? "да" : "") + "</td>" +
+          "<td class=\"cov-links\" style=\"" + colStyle("sp_links") + "\">" + linkList(row.sp_links) + "</td></tr>"
+        );
+        if (open) {
+          const items = (row.members || []).map(function (m) {
+            return "<li><a class=\"file-link\" href=\"" + escapeHtml(m.url) + "\" target=\"_blank\" rel=\"noopener\">" +
+              escapeHtml(m.name) + "</a>" + (m.is_head ? "<span class=\"tag\">головная</span>" : "") +
+              "<div class=\"cov-mem-meta\">" +
+              "<span>Проработка: <b>" + escapeHtml(m.coverage_title) + "</b></span>" +
+              "<span>RFM: <b>" + escapeHtml(m.rfm) + "</b></span>" +
+              "<span>Отв.: <b>" + escapeHtml(m.mop) + "</b></span>" +
+              "<span>Дел: <b>" + (m.events_count || 0) + "</b></span>" +
+              "<span>Посл.: <b>" + escapeHtml(m.last_subject || "—") + "</b></span>" +
+              "</div></li>";
+          }).join("");
+          bodyPieces.push("<tr class=\"cov-members\" data-gid=\"" + escapeHtml(gid) +
+            "\"><td colspan=\"" + COLS.length + "\"><ul>" + items + "</ul></td></tr>");
+        }
+      });
+    }
+    const bodyHtml = bodyPieces.join("");
     table.innerHTML =
       "<div class=\"table-wrap cov-wrap\"><table class=\"flat cov-grid\"><thead><tr>" +
       COLS.map(function (c) {
@@ -983,6 +1037,14 @@
     const tbody = table.querySelector("tbody");
     if (tbody) {
       tbody.addEventListener("click", function (e) {
+        const exp = e.target.closest ? e.target.closest(".cov-exp") : null;
+        if (exp) {
+          const gid = exp.getAttribute("data-gid");
+          if (STATE.openGroups[gid]) delete STATE.openGroups[gid];
+          else STATE.openGroups[gid] = true;
+          paintTable();
+          return;
+        }
         if (e.target.closest && e.target.closest("a")) return;
         const btn = e.target.closest ? e.target.closest(".cov-events-btn") : null;
         const tr = e.target.closest ? e.target.closest("tr.cov-row") : null;

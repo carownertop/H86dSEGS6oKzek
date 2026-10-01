@@ -8,10 +8,10 @@
   <link rel="icon" href="static/logo.png" />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <meta http-equiv="Cache-Control" content="no-cache" />
-  <link rel="stylesheet" href="static/brand.css?v=mark16" />
+  <link rel="stylesheet" href="static/brand.css?v=mark17" />
   <script>window.RTL_API = "https://141-105-71-134.sslip.io/a";</script>
   <script src="static/boot.js?v=hub7"></script>
-  <script src="static/coverage.js?v=20"></script>
+  <script src="static/coverage.js?v=22"></script>
   <script src="static/plan.js?v=9"></script>
   <script src="static/dept.js?v=2"></script>
 </head>
@@ -490,10 +490,34 @@
       rtlDownload(decodeURIComponent(link.dataset.dl)).catch(() => {});
     });
 
+    // Глубокая ссылка: #coverage -> Сборка → Проработка ; #ready-coverage -> Готовые → Проработка
+    function applyHashRoute() {
+      const h = (location.hash || "").replace(/^#\/?/, "").toLowerCase();
+      if (!h) return;
+      const wantsCoverage = h.includes("coverage") || h.includes("прораб");
+      if (!wantsCoverage) return;
+      const wantsReady = h.startsWith("ready") || h.startsWith("готов");
+      if (wantsReady) {
+        goReady("coverage");
+        return;
+      }
+      document.querySelectorAll("#main-tabs .nav-pill").forEach((b) => b.classList.toggle("on", b.dataset.panel === "build"));
+      document.getElementById("ready").classList.remove("on");
+      document.getElementById("build").classList.add("on");
+      document.querySelectorAll("#build-tabs .sub-pill").forEach((b) => b.classList.toggle("on", b.dataset.build === "coverage"));
+      document.querySelectorAll("#build .subpanel").forEach((p) => p.classList.toggle("on", p.id === "build-coverage"));
+      document.getElementById("build-title").textContent = BUILD_COPY.coverage.title;
+      document.getElementById("build-lead").textContent = BUILD_COPY.coverage.lead;
+      const cov = document.getElementById("build-coverage");
+      if (cov) cov.scrollIntoView({ block: "start" });
+    }
+    window.addEventListener("hashchange", applyHashRoute);
+    applyHashRoute();
+
     (window.rtlReady || Promise.resolve()).then(() => {
       if (window.RTL_HUB_BLOCKED) return;
       return loadState();
-    }).catch(() => {});
+    }).then(() => { applyHashRoute(); }).catch(() => {});
   </script>
 </body>
 </html>
