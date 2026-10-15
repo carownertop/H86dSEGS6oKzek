@@ -22,6 +22,8 @@
     { key: "gk", title: "ГК" },
     { key: "manager", title: "МОП" },
     { key: "priority", title: "Приоритет" },
+    { key: "rhythm", title: "Ритм" },
+    { key: "cycle_status", title: "Статус цикла" },
     { key: "rfm", title: "RFM" },
     { key: "lifecycle", title: "Жизн. цикл" },
     { key: "days_since_buy", title: "Дней без покупки" },
@@ -35,12 +37,12 @@
     { key: "offers_count", title: "Что предложить" },
   ];
   const COL_DEFAULT_W = {
-    name: 200, gk: 52, manager: 120, priority: 96, rfm: 92, lifecycle: 100,
+    name: 200, gk: 52, manager: 120, priority: 110, rhythm: 90, cycle_status: 100, rfm: 92, lifecycle: 100,
     days_since_buy: 72, median_interval: 72, avg_check: 84, days_in_base: 72,
     revenue: 92, stock_hits: 64, brands: 120, bought_count: 72, offers_count: 88,
   };
   const MULTI_FILTER_COLS = { brands: true };
-  const PRIO_RANK = { "1. Горячие": 0, "2. Новые": 1, "3. Задержались": 2, "4. Спящие": 3 };
+  const PRIO_RANK = { "1. Горячие": 0, "2. Новые": 1, "3. Задержались": 2, "4. Потерянные": 3, "5. Не сейчас": 4, "6. Спящие": 5 };
   const STOCK_ITEMS = [
     { id: "with_stock", title: "На складе" },
     { id: "without", title: "Без совпадения" },
@@ -49,7 +51,9 @@
     { id: "1. Горячие", title: "Горячие" },
     { id: "2. Новые", title: "Новые" },
     { id: "3. Задержались", title: "Задержались" },
-    { id: "4. Спящие", title: "Спящие" },
+    { id: "4. Потерянные", title: "Потерянные" },
+    { id: "5. Не сейчас", title: "Не сейчас" },
+    { id: "6. Спящие", title: "Спящие" },
   ];
   const REV_ITEMS = [
     { id: "lt50", title: "до 50 тыс" },
@@ -169,7 +173,7 @@
     if (q) {
       rows = rows.filter(function (r) {
         const members = (r.members || []).map(function (m) { return m.name; }).join(" ");
-        return [r.name, r.manager, r.priority, r.rfm, r.lifecycle, r.brands,
+        return [r.name, r.manager, r.priority, r.rhythm, r.cycle_status, r.rfm, r.lifecycle, r.brands,
           r.bought_text, r.top_bought, r.offers, members].join(" ").toLowerCase().indexOf(q) >= 0;
       });
     }
@@ -515,7 +519,8 @@
   function prioBadge(priority) {
     const cls = priority && priority.indexOf("Горячие") >= 0 ? "ok"
       : priority && priority.indexOf("Новые") >= 0 ? ""
-      : priority && priority.indexOf("Спящие") >= 0 ? "bad" : "mail";
+      : priority && (priority.indexOf("Потерянные") >= 0 || priority.indexOf("Спящие") >= 0) ? "bad"
+      : priority && priority.indexOf("Не сейчас") >= 0 ? "" : "mail";
     return "<span class=\"cov-badge " + cls + "\">" + escapeHtml(priority || "—") + "</span>";
   }
   function membersHtml(row) {
@@ -538,11 +543,16 @@
   }
   function nameCell(row) {
     const label = escapeHtml(row.name || "—");
+    const gkBadge = (row.members_count || 1) > 1
+      ? " <span class=\"cov-badge\" title=\"Группа компаний: " + (row.members_count || 1) +
+        " юрлиц. Дни без покупки, интервал, ср. чек, выручка и статус — по всей группе.\">ГК · " +
+        (row.members_count || 1) + "</span>"
+      : "";
     if (row.url) {
       return "<a class=\"file-link\" href=\"" + escapeHtml(row.url) +
-        "\" target=\"_blank\" rel=\"noopener\">" + label + "</a>";
+        "\" target=\"_blank\" rel=\"noopener\">" + label + "</a>" + gkBadge;
     }
-    return label;
+    return label + gkBadge;
   }
   function countOffers(row) {
     if (row.offers_count != null && row.offers_count !== "") {
@@ -752,6 +762,8 @@
             "<td style=\"" + colStyle("gk") + "\"" + tipAttr("ГК: " + gkLabel) + ">" + gk + "</td>" +
             "<td style=\"" + colStyle("manager") + "\"" + tipAttr(row.manager) + ">" + escapeHtml(row.manager || "—") + "</td>" +
             "<td style=\"" + colStyle("priority") + "\"" + tipAttr(row.priority) + ">" + prioBadge(row.priority) + "</td>" +
+            "<td style=\"" + colStyle("rhythm") + "\"" + tipAttr(row.rhythm) + ">" + escapeHtml(row.rhythm || "—") + "</td>" +
+            "<td style=\"" + colStyle("cycle_status") + "\"" + tipAttr(row.cycle_status) + ">" + escapeHtml(row.cycle_status || "—") + "</td>" +
             "<td style=\"" + colStyle("rfm") + "\"" + tipAttr(row.rfm) + ">" + escapeHtml(row.rfm || "—") + "</td>" +
             "<td style=\"" + colStyle("lifecycle") + "\"" + tipAttr(row.lifecycle) + ">" + escapeHtml(row.lifecycle || "—") + "</td>" +
             "<td style=\"" + colStyle("days_since_buy") + "\"" + tipAttr(daysBuy) + ">" + daysBuy + "</td>" +

@@ -45,15 +45,31 @@
         <p class="lead" id="build-lead">ОП на месяц: текущие, новые, Р1 без двойного счёта. Рынок — риск, не вычет.</p>
         <nav class="subnav subnav-tight" id="build-tabs">
           <button type="button" class="sub-pill on" data-build="dept">План отдела</button>
-          <button type="button" class="sub-pill" data-build="plan">План продаж</button>
+          <button type="button" class="sub-pill" data-build="plan">План обзвона</button>
           <button type="button" class="sub-pill" data-build="segmentation">Сегментация</button>
           <button type="button" class="sub-pill" data-build="coverage">Проработка</button>
         </nav>
 
         <div class="subpanel on" id="build-dept">
+          <div class="plan-about" id="dept-about">
+            <style>
+              .plan-about .pa-list { margin:0; padding:0; list-style:none; display:grid; gap:6px; }
+              .plan-about .pa-list li { position:relative; padding-left:14px; }
+              .plan-about .pa-list li::before { content:"•"; position:absolute; left:2px; color:var(--muted); }
+            </style>
+            <div class="pa-card"><h3>Что это</h3><p>Модельная оценка выручки отдела на месяц в трёх сценариях: пессимист, реалист, оптимист. Показывает, что получится, если клиенты поведут себя как раньше. Это не обещание и не цифра к исполнению.</p></div>
+            <div class="pa-card"><h3>Из чего считается</h3><ul class="pa-list"><li>Текущие клиенты — по истории покупок: как часто берут, на какую сумму, живы ли сейчас.</li><li>Новые клиенты — по среднему потоку первых покупок за 6 месяцев.</li><li>Р1 — подтверждённые сделки воронки «1С РТЛ».</li><li>Задел на рост — доля спроса, не закрытого товаром («Нет товара»): пессимист 20%, реалист 50%, оптимист 100%.</li><li>Склад и цены — спрос режется остатками; цена выше рынка показана как риск.</li></ul></div>
+            <div class="pa-card"><h3>Как читать</h3><ul class="pa-list"><li>Это ориентир с большим разбросом. Месяц держится на нескольких крупных клиентах, поэтому факт может выйти и выше, и ниже, в том числе за пределы пессимиста и оптимиста.</li><li>Главная ценность — структура: чего не хватает по товару, где цена не в рынке, кому звонить.</li><li>Данные 1С берутся до конца предыдущего месяца.</li></ul></div>
+          </div>
           <p class="hint" style="margin:0 0 12px">Считает ~30–40 сек: 1С + склад + цены конкурентов + воронка 1С РТЛ. Excel сразу попадает во вкладку «Готовые».</p>
           <div class="build-toolbar">
             <div class="build-toolbar-row">
+              <div class="build-field">
+                <label class="field-label" for="dept-month">Месяц плана</label>
+                <select id="dept-month">
+                  <option value="">Загрузка…</option>
+                </select>
+              </div>
               <div class="build-field build-field-grow">
                 <label class="field-label" for="dept-price-date">Дата цен конкурентов</label>
                 <select id="dept-price-date">
@@ -61,6 +77,7 @@
                 </select>
               </div>
             </div>
+            <p class="hint" id="dept-month-note" style="margin:0 0 6px"></p>
             <p class="hint" style="margin:0">Берётся срез из сервиса цен конкурентов. Рынок в плане считается только по этой дате.</p>
           </div>
           <div class="adv" id="adv-dept">
@@ -69,8 +86,8 @@
             </button>
             <div class="adv-body">
               <div>
-                <p class="adv-note">По умолчанию — следующий месяц после последней сделки в загруженных 1С.</p>
-                <label class="field-label" for="dept-as-of">Старт месяца прогноза</label>
+                <p class="adv-note">Обычно хватает поля «Месяц плана». Точная дата старта нужна только для нестандартного среза и имеет приоритет над месяцем.</p>
+                <label class="field-label" for="dept-as-of">Старт месяца прогноза (дата)</label>
                 <input id="dept-as-of" type="date" />
               </div>
             </div>
@@ -81,6 +98,9 @@
             <div id="dept-summary" class="cov-summary dept-summary"></div>
             <p class="hint" id="dept-meta" style="margin:0 0 10px"></p>
             <div class="dept-table-wrap" id="dept-layers"></div>
+            <h3 class="dept-h">Спрос и что закроем</h3>
+            <p class="hint" style="margin:0 0 8px">От спроса клиентов до того, что реально продаём по рынку, и как это связано с «Итого план». Не хватает товара — закупка, цена выше рынка — выравниваем цену.</p>
+            <div class="dept-table-wrap" id="dept-demand"></div>
             <h3 class="dept-h">Риск: не в рынке</h3>
             <div class="dept-table-wrap" id="dept-risk"></div>
             <h3 class="dept-h">Р1 в план</h3>
@@ -94,6 +114,43 @@
         </div>
 
         <div class="subpanel" id="build-plan">
+          <style>
+            .plan-about { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; margin:4px 0 18px; max-width:980px; }
+            .plan-about .pa-card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+            .plan-about h3 { margin:0 0 6px; font-size:13px; font-weight:700; color:var(--navy); }
+            .plan-about p, .plan-about li { margin:0; font-size:12px; line-height:1.5; color:var(--muted); }
+            .plan-about ul { margin:0; padding:0; list-style:none; display:grid; gap:5px; }
+            .plan-about li b { color:var(--navy); font-weight:700; }
+            .plan-about .pa-wide { grid-column:1 / -1; }
+            .plan-about .pa-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:5px 18px; }
+          </style>
+          <div class="plan-about" id="plan-about">
+            <div class="pa-card">
+              <h3>Что это</h3>
+              <p>Список клиентов менеджера для обзвона. По каждому клиенту видно: что он покупал, что из этого сейчас есть на складе или в пути и что ему предложить.</p>
+            </div>
+            <div class="pa-card">
+              <h3>Откуда данные</h3>
+              <p>Клиенты и покупки — 1С (заказы и реализации). Склад и путь — таблица остатков. Группы компаний (ГК) — Битрикс24.</p>
+            </div>
+            <div class="pa-card">
+              <h3>Что получаете</h3>
+              <p>Таблицу на экране с фильтрами и поиском, а по кнопке «Сформировать файл» — Excel. Клиенты отсортированы по приоритету.</p>
+            </div>
+            <div class="pa-card pa-wide">
+              <h3>Как расставлен приоритет</h3>
+              <p style="margin-bottom:8px">Для каждого клиента считаем ритм покупок (регулярный, редкий, разовый, новый) и где он сейчас в своём цикле: дни без покупки ÷ обычный интервал между покупками.</p>
+              <ul class="pa-grid">
+                <li><b>1. Горячие</b> — регулярный, пришло время купить. Звонить сейчас.</li>
+                <li><b>2. Новые</b> — первая покупка не старше 90 дней.</li>
+                <li><b>3. Задержались</b> — регулярный, опаздывает. Напомнить.</li>
+                <li><b>4. Потерянные</b> — был регулярным, пропал. Реактивация.</li>
+                <li><b>5. Не сейчас</b> — недавно купил или ритма нет.</li>
+                <li><b>6. Спящие</b> — без ритма, больше 180 дней без покупки.</li>
+              </ul>
+              <p style="margin-top:8px">ГК — группа компаний: дни без покупки, интервал, чек и выручка считаются по всей группе.</p>
+            </div>
+          </div>
           <span class="field-label">МОПы</span>
           <div class="mops mops-dense" id="mops"></div>
           <div class="adv" id="adv-plan">
@@ -108,7 +165,7 @@
               </div>
             </div>
           </div>
-          <button type="button" class="primary" id="plan-btn">Собрать план продаж</button>
+          <button type="button" class="primary" id="plan-btn">Собрать план обзвона</button>
           <div class="msg" id="plan-msg"></div>
           <div id="plan-result" class="cov-result" hidden>
             <div id="plan-summary" class="cov-summary"></div>
@@ -248,7 +305,7 @@
         <p class="lead" id="ready-lead">Скачайте Excel. Фильтры только внутри этого отчёта.</p>
         <nav class="subnav subnav-tight" id="ready-tabs">
           <button type="button" class="sub-pill on" data-ready="dept">План отдела<span class="n" data-count="dept"></span></button>
-          <button type="button" class="sub-pill" data-ready="plan">План продаж<span class="n" data-count="plan"></span></button>
+          <button type="button" class="sub-pill" data-ready="plan">План обзвона<span class="n" data-count="plan"></span></button>
           <button type="button" class="sub-pill" data-ready="segmentation">Сегментация<span class="n" data-count="segmentation"></span></button>
           <button type="button" class="sub-pill" data-ready="dynamics">Динамика<span class="n" data-count="dynamics"></span></button>
           <button type="button" class="sub-pill" data-ready="coverage">Проработка<span class="n" data-count="coverage"></span></button>
@@ -273,15 +330,15 @@
     </div>
   </main>
   <script>
-    const KIND_TITLE = { dept: "План отдела", plan: "План продаж", segmentation: "Сегментация", dynamics: "Динамика", coverage: "Проработка" };
+    const KIND_TITLE = { dept: "План отдела", plan: "План обзвона", segmentation: "Сегментация", dynamics: "Динамика", coverage: "Проработка" };
     const BUILD_COPY = {
       dept: {
         title: "План отдела",
         lead: "ОП на месяц: текущие, новые, Р1 без двойного счёта. Рынок — риск, не вычет.",
       },
       plan: {
-        title: "План продаж",
-        lead: "Соберите таблицу, отфильтруйте срез, затем «Сформировать файл». Пустой список МОПов — вся команда.",
+        title: "План обзвона",
+        lead: "Кому звонить и что предложить. Соберите таблицу по МОПам, отфильтруйте срез, затем «Сформировать файл». Пустой список МОПов — вся команда.",
       },
       segmentation: {
         title: "Сегментация",

@@ -76,11 +76,13 @@
 
     const bits = [
       "Месяц " + (payload.forecast_label || "—"),
+      "данные 1С до " + (payload.data_through ? formatStamp(payload.data_through) : "—"),
       "покупателей " + num(payload.n_buyers),
       "склад " + (payload.stock_updated || "—"),
       "цены " + (payload.price_stamp || market.stamp || "—"),
     ];
     if (uplift.synced_at) bits.push("CRM " + uplift.synced_at);
+    if (payload.retro) bits.push("ретро-план: склад, цены и воронка — на сегодня, не на тот месяц");
     must("dept-meta").textContent = bits.join(" · ");
 
     const layers = [
@@ -97,6 +99,67 @@
         return "<tr>" + cell(row[0]) + moneyCell(v.pess) + moneyCell(v.real) + moneyCell(v.opt) + "</tr>";
       })
     );
+
+    (function paintDemand() {
+      const host = $("dept-demand");
+      if (!host) return;
+      const g = function (o, k) { const n = Number(o && o[k]); return isFinite(n) ? n : 0; };
+      const m1 = function (v) {
+        return (v / 1e6).toLocaleString("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      };
+      const dCur = payload.demand || {}, sCur = payload.ship_stock || {}, mCur = dept.current_in_market || {};
+      const dNew = payload.demand_new_all || {}, sNew = payload.ship_new || {}, mNew = dept.new_in_market || {};
+      const add = function (a, b) {
+        const o = {};
+        ["pess", "real", "opt"].forEach(function (k) { o[k] = g(a, k) + g(b, k); });
+        return o;
+      };
+      const blocks = [
+        ["Текущие клиенты", dCur, sCur, mCur],
+        ["Новые клиенты", dNew, sNew, mNew],
+        ["Всего", add(dCur, dNew), add(sCur, sNew), add(mCur, mNew)],
+      ];
+      const lines = [
+        ["Хотят купить", function (d, s, m, k) { return g(d, k); }, "спрос по истории и циклу покупок"],
+        ["− Нет товара", function (d, s, m, k) { return Math.max(0, g(d, k) - g(s, k)); }, "закупка / поставка"],
+        ["→ Есть товар", function (d, s, m, k) { return g(s, k); }, "закроем складом и в пути"],
+        ["− Цена выше рынка", function (d, s, m, k) { return Math.max(0, g(s, k) - g(m, k)); }, "выравнивание цены"],
+        ["→ Продаём по рынку", function (d, s, m, k) { return g(m, k); }, "реальный потенциал при текущих ценах"],
+      ];
+      const rows = [];
+      blocks.forEach(function (blk) {
+        rows.push("<tr class=\"dept-block\"><td colspan=\"5\" style=\"background:#1e3a5f;color:#fff;font-weight:700\">" +
+          escapeHtml(blk[0]) + "</td></tr>");
+        lines.forEach(function (ln, idx) {
+          const key = idx === 4;
+          const cellStyle = key ? " style=\"background:#d1fae5;font-weight:700\"" : "";
+          rows.push("<tr><td" + cellStyle + ">" + (idx % 2 === 1 || idx === 3 ? "&nbsp;&nbsp;" : "") + escapeHtml(ln[0]) + "</td>" +
+            ["pess", "real", "opt"].map(function (k) {
+              return "<td class=\"num\"" + cellStyle + ">" + m1(ln[1](blk[1], blk[2], blk[3], k)) + "</td>";
+            }).join("") +
+            "<td style=\"color:#6b7280;font-size:12px" + (key ? ";background:#d1fae5;font-weight:700" : "") + "\">" + escapeHtml(ln[2]) + "</td></tr>");
+        });
+      });
+      const r1v = dept.r1 || {}, grv = dept.growth || {}, tpv = dept.total || {};
+      const have = add(sCur, sNew);
+      rows.push("<tr><td colspan=\"5\" style=\"background:#14532d;color:#fff;font-weight:700\">Как это связано с «Итого план»</td></tr>");
+      [
+        ["Есть товар (текущие + новые)", have, "из блока «Всего» выше", false],
+        ["+ Р1: сделки в воронке", r1v, "подтверждённые сделки «1С РТЛ»", false],
+        ["+ Задел на рост", grv, "доля «Нет товара»: песс 20% / реал 50% / опт 100%", false],
+        ["→ Итого план отдела", tpv, "та же цифра, что в KPI вверху", true],
+      ].forEach(function (ln) {
+        const st = ln[3] ? " style=\"background:#dcfce7;font-weight:700\"" : "";
+        rows.push("<tr><td" + st + ">" + escapeHtml(ln[0]) + "</td>" + ["pess", "real", "opt"].map(function (k) {
+          return "<td class=\"num\"" + st + ">" + (g(ln[1], k) / 1e6).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "</td>";
+        }).join("") + "<td style=\"color:#6b7280;font-size:12px" + (ln[3] ? ";background:#dcfce7" : "") + "\">" + escapeHtml(ln[2]) + "</td></tr>");
+      });
+      host.innerHTML = tableHtml(
+        [{ title: "млн ₽" }, { title: "Песс", cls: "num" }, { title: "Реал", cls: "num" }, { title: "Опт", cls: "num" }, { title: "Что это значит" }],
+        rows
+      ) + "<p class=\"hint\" style=\"margin:8px 0 0\">«Итого план» считается от «Есть товар», а не от «Продаём по рынку»: цена не в рынке из плана не вычитается, это риск. " +
+        "Если цена не выровняется, реально продадим ближе к «Продаём по рынку» + Р1.</p>";
+    })();
 
     const inMarket = (dept.current_in_market || {}).real;
     const riskRows = [
@@ -169,6 +232,7 @@
     btn.textContent = "Считаем ~40 сек…";
     showMsg("Идёт расчёт: 1С, склад, цены, воронка 1С РТЛ.", true);
     const asOf = ($("dept-as-of") && $("dept-as-of").value) || "";
+    const month = ($("dept-month") && $("dept-month").value) || "";
     const priceDate = ($("dept-price-date") && $("dept-price-date").value) || "";
     if (!priceDate) {
       btn.disabled = false;
@@ -183,6 +247,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           as_of: asOf || null,
+          month: month || null,
           price_date: priceDate || null,
         }),
       });
@@ -214,6 +279,44 @@
     return parts[2] + "." + parts[1] + "." + parts[0];
   }
 
+  function monthLabel(ym) {
+    const names = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август",
+      "сентябрь", "октябрь", "ноябрь", "декабрь"];
+    const p = String(ym || "").split("-");
+    if (p.length !== 2) return String(ym || "");
+    return names[Number(p[1]) - 1] + " " + p[0];
+  }
+  function lastDayBefore(ym) {
+    const p = String(ym).split("-");
+    const d = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, 1) - 86400000);
+    return String(d.getUTCDate()).padStart(2, "0") + "." + String(d.getUTCMonth() + 1).padStart(2, "0") + "." + d.getUTCFullYear();
+  }
+  function paintMonths(body) {
+    const sel = $("dept-month");
+    const note = $("dept-month-note");
+    if (!sel) return;
+    const months = (body && body.months) || [];
+    if (!months.length) {
+      sel.innerHTML = "<option value=\"\">По умолчанию</option>";
+      return;
+    }
+    const def = body.default_month || months[months.length - 1];
+    sel.innerHTML = months.map(function (ym) {
+      const extra = ym === def ? " — текущий" : " — ретро";
+      return "<option value=\"" + escapeHtml(ym) + "\">" + escapeHtml(monthLabel(ym) + extra) + "</option>";
+    }).join("");
+    sel.value = def;
+    function upd() {
+      if (!note) return;
+      const retro = sel.value && sel.value !== def;
+      note.textContent = "План на " + monthLabel(sel.value) + " строится по данным 1С до " + lastDayBefore(sel.value) +
+        " включительно. Последний день данных в загрузке: " + formatStamp(body.data_end || "") + "." +
+        (retro ? " Ретро-план: склад, цены и воронка берутся на сегодня." : "");
+    }
+    sel.onchange = upd;
+    upd();
+  }
+
   async function loadMeta() {
     const sel = $("dept-price-date");
     if (!sel) return;
@@ -221,6 +324,7 @@
       if (!window.rtlFetch) return;
       const res = await window.rtlFetch("api/dept/meta");
       const body = await res.json();
+      paintMonths(body);
       const dates = (body && body.price_dates) || [];
       if (!dates.length) {
         sel.innerHTML = "<option value=\"\">Нет срезов цен</option>";
