@@ -33,11 +33,12 @@
     { key: "deal_links", title: "Открытые сделки" },
     { key: "has_sp", title: "СП" },
     { key: "sp_links", title: "Открытые СП" },
+    { key: "list_label", title: "Список обзвона" },
   ];
   const COL_DEFAULT_W = {
     name: 220, mop: 140, contact_responsibles: 160, rfm: 90, coverage_title: 120, event_types: 160,
     last_subject: 220, events_count: 64, has_planned: 64, has_overdue: 72,
-    has_deal: 72, deal_links: 160, has_sp: 56, sp_links: 160,
+    has_deal: 72, deal_links: 160, has_sp: 56, sp_links: 160, list_label: 170,
   };
   const MULTI_FILTER_COLS = { event_types: true, contact_responsibles: true };
   const EVENT_TYPE_ORDER = [
@@ -212,6 +213,8 @@
     listEl.querySelectorAll("input").forEach(function (inp, idx) {
       const src = store.querySelectorAll("input")[idx];
       if (src) inp.checked = src.checked;
+      // копия в окне не должна считаться вторым набором галок: иначе «Все · 8» вместо «Все · 4»
+      inp.removeAttribute("name");
     });
     const rect = anchor.getBoundingClientRect();
     const width = Math.min(360, window.innerWidth - 24);
@@ -396,6 +399,13 @@
         b.classList.toggle("on", b.getAttribute("data-universe") === STATE.universe);
       });
     }
+    const listRow = $("cov-list-row");
+    const listOk = STATE.universe === "company" || STATE.universe === "contact";
+    if (listRow) listRow.hidden = !listOk;
+    if (!listOk && $("cov-list") && $("cov-list").value) {
+      $("cov-list").value = "";
+      onCallListChange();
+    }
     const company = $("cov-company-fields");
     const lead = $("cov-lead-fields");
     if (company) company.hidden = STATE.universe !== "company";
@@ -477,7 +487,62 @@
       other_assignee_ids: selected("cov-other-mop"),
       activity_mop_ids: selected("cov-activity-mop"),
       planned: selected("cov-planned"),
+      call_list: callListPayload(),
     };
+  }
+  function allChecked(name) {
+    const boxes = document.querySelectorAll("input[name=\"" + name + "\"]");
+    return !boxes.length || Array.prototype.every.call(boxes, function (el) { return el.checked; });
+  }
+  function callListPayload() {
+    const sel = $("cov-list");
+    if (!sel || !sel.value || (STATE.universe !== "company" && STATE.universe !== "contact")) return null;
+    return {
+      id: sel.value,
+      mode: must("cov-list-mode").value,
+      managers: allChecked("cov-list-mgr") ? [] : selected("cov-list-mgr"),
+      priorities: allChecked("cov-list-prio") ? [] : selected("cov-list-prio"),
+    };
+  }
+  function fillCallLists(items) {
+    const sel = $("cov-list");
+    if (!sel) return;
+    const prev = sel.value;
+    STATE.meta.call_lists = items || [];
+    sel.innerHTML = "<option value=\"\">— не отбирать —</option>" + (items || []).map(function (it) {
+      return "<option value=\"" + escapeHtml(it.id) + "\">" + escapeHtml(it.title) + "</option>";
+    }).join("");
+    sel.value = (items || []).some(function (it) { return it.id === prev; }) ? prev : "";
+  }
+  async function onCallListChange() {
+    const sel = must("cov-list");
+    const on = !!sel.value;
+    must("cov-list-mode-field").hidden = !on;
+    must("cov-list-filters").hidden = !on;
+    if (!on) return;
+    const item = ((STATE.meta && STATE.meta.call_lists) || []).filter(function (it) { return it.id === sel.value; })[0];
+    if (item && item.issued && $("cov-period-from")) {
+      // касания считаем с даты выдачи списка — иначе старые звонки зачтутся как работа по нему
+      $("cov-period-from").value = item.issued;
+      if ($("cov-period-to")) $("cov-period-to").value = monthBounds().to || $("cov-period-to").value;
+    }
+    try {
+      const res = await window.rtlFetch("api/coverage/call-lists/" + encodeURIComponent(sel.value) + "/options");
+      const body = await res.json();
+      if (!body.ok) throw new Error(body.error || "не загрузились менеджеры списка");
+      mountPicker($("cov-list-mgr"), "cov-list-mgr", (body.managers || []).map(function (m) { return { id: m, title: m }; }));
+      mountPicker($("cov-list-prio"), "cov-list-prio", (body.priorities || []).map(function (m) { return { id: m, title: m }; }));
+    } catch (err) {
+      showMsg("Список обзвона: " + ((err && err.message) || err), false);
+    }
+  }
+  function labelListRows(rows, summary) {
+    const withList = !!(summary && summary.call_list);
+    rows.forEach(function (row) {
+      row.list_label = !withList ? "" : (row.in_list
+        ? ((row.list_priority || "в списке") + (row.list_manager ? " · " + row.list_manager.split(" ")[0] : ""))
+        : "вне списка");
+    });
   }
   function badge(row) {
     const cls = row.coverage === "touched" ? "ok"
@@ -790,15 +855,31 @@
       ["deal", "Со сделкой", summary.with_deal],
       ["sp", "С СП", summary.with_sp],
     ];
+    const cl = summary.call_list;
+    if (cl) {
+      items.push(["", "Из списка потроганы", cl.in_list_touched + " из " + cl.in_list_rows]);
+      if (cl.mode !== "in") items.push(["", "Вне списка потроганы", cl.out_list_touched + " из " + cl.out_list_rows]);
+      items.push(["", "Клиентов в списке (1С)", cl.list_groups, "list"]);
+      items.push(["", cl.kind === "contact" ? "Найдены как компании" : "Найдены как контакты", cl.list_elsewhere, "elsewhere"]);
+      items.push(["", "Не найдены в Битриксе нигде", cl.list_missing, "missing"]);
+      if (cl.list_filtered) items.push(["", "Срезаны фильтрами среза", cl.list_filtered]);
+    }
     box.innerHTML = items.map(function (item) {
       const key = item[0];
       const label = item[1];
       const val = item[2] == null ? 0 : item[2];
       const clickable = key === "all" || key === "touched" || key === "partial" || key === "email" || key === "none";
       const on = clickable && ((key === "all" && STATE.covFilter === "all") || key === STATE.covFilter);
-      return "<div class=\"cov-kpi" + (on ? " on" : "") + "\" data-cov=\"" +
-        (clickable ? key : "") + "\"><span>" + label + "</span><b>" + val + "</b></div>";
+      const tone = item[3] ? " cov-kpi--" + item[3] : "";
+      return "<div class=\"cov-kpi" + tone + (on ? " on" : "") + "\" data-cov=\"" +
+        (clickable ? key : "") + "\"" + (item[3] ? " data-tone=\"" + item[3] + "\"" : "") +
+        "><span>" + label + "</span><b>" + val + "</b></div>";
     }).join("");
+    box.querySelectorAll(".cov-kpi[data-tone]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        toggleListPanel(el.getAttribute("data-tone"));
+      });
+    });
     box.querySelectorAll(".cov-kpi[data-cov]").forEach(function (el) {
       if (!el.getAttribute("data-cov")) return;
       el.addEventListener("click", function () {
@@ -808,6 +889,39 @@
         renderSummary(STATE.summary);
       });
     });
+  }
+  function toggleListPanel(tone) {
+    const cl = STATE.summary && STATE.summary.call_list;
+    let panel = $("cov-list-panel");
+    if (!cl) return;
+    if (!panel) {
+      panel = document.createElement("div");
+      panel.id = "cov-list-panel";
+      panel.className = "cov-list-panel";
+      $("cov-summary").insertAdjacentElement("afterend", panel);
+    }
+    if (STATE.listPanel === tone) {
+      STATE.listPanel = null;
+      panel.hidden = true;
+      return;
+    }
+    STATE.listPanel = tone;
+    const pick = { list: null, elsewhere: cl.list_elsewhere_rows, missing: cl.list_missing_rows }[tone];
+    if (!pick) {
+      STATE.listPanel = null;
+      panel.hidden = true;
+      return;
+    }
+    const title = tone === "missing"
+      ? "Клиенты списка, которых нет в Битриксе ни как компании, ни как контакта"
+      : (cl.kind === "contact" ? "Клиенты списка, найденные как компании" : "Клиенты списка, найденные как контакты");
+    panel.className = "cov-list-panel cov-list-panel--" + tone;
+    panel.hidden = false;
+    panel.innerHTML = "<b>" + escapeHtml(title) + " · " + pick.length + "</b>" +
+      (pick.length ? "<ul>" + pick.map(function (r) {
+        return "<li>" + escapeHtml(r.name) + " <span>" + escapeHtml(r.priority) +
+          (r.manager ? " · " + escapeHtml(r.manager) : "") + "</span></li>";
+      }).join("") + "</ul>" : "<p class=\"hint\" style=\"margin:4px 0 0\">Пусто.</p>");
   }
   function syncChips() {
     document.querySelectorAll("#cov-chips .cov-chip").forEach(function (btn) {
@@ -975,7 +1089,8 @@
           "<td style=\"" + colStyle("has_deal") + "\">" + (row.has_deal ? "да" : "") + "</td>" +
           "<td class=\"cov-links\" style=\"" + colStyle("deal_links") + "\">" + linkList(row.deal_links) + "</td>" +
           "<td style=\"" + colStyle("has_sp") + "\">" + (row.has_sp ? "да" : "") + "</td>" +
-          "<td class=\"cov-links\" style=\"" + colStyle("sp_links") + "\">" + linkList(row.sp_links) + "</td></tr>"
+          "<td class=\"cov-links\" style=\"" + colStyle("sp_links") + "\">" + linkList(row.sp_links) + "</td>" +
+          "<td style=\"" + colStyle("list_label") + "\">" + escapeHtml(row.list_label || "—") + "</td></tr>"
         );
         if (open) {
           const items = (row.members || []).map(function (m) {
@@ -1067,6 +1182,9 @@
   function showResult(rows, summary) {
     STATE.rows = rows || [];
     STATE.summary = summary || {};
+    labelListRows(STATE.rows, STATE.summary);
+    STATE.listPanel = null;
+    if ($("cov-list-panel")) $("cov-list-panel").hidden = true;
     STATE.selected = null;
     STATE.covFilter = "all";
     STATE.search = "";
@@ -1215,6 +1333,27 @@
         closePickerPop();
       }
     });
+    must("cov-list").addEventListener("change", onCallListChange);
+    must("cov-list-refresh").addEventListener("click", async function () {
+      const btn = must("cov-list-refresh");
+      btn.disabled = true;
+      const prev = btn.textContent;
+      btn.textContent = "Фиксирую…";
+      try {
+        const res = await window.rtlFetch("api/coverage/call-lists/refresh", { method: "POST" });
+        const body = await res.json();
+        if (!body.ok) throw new Error(body.error || "не удалось");
+        fillCallLists(body.call_lists || []);
+        must("cov-list").value = body.snapshot.id;
+        await onCallListChange();
+        showMsg("Список зафиксирован: " + body.snapshot.title, true);
+      } catch (err) {
+        showMsg("Список обзвона: " + ((err && err.message) || err), false);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prev;
+      }
+    });
     must("cov-btn").addEventListener("click", async function () {
       const btn = must("cov-btn");
       btn.disabled = true;
@@ -1297,6 +1436,7 @@
     mountPicker($("cov-mops-other"), "cov-other-mop", body.other_assignees || []);
     mountPicker($("cov-mops-activity"), "cov-activity-mop", body.mops);
     mountPicker($("cov-planned"), "cov-planned", body.planned_filters || []);
+    fillCallLists(body.call_lists || []);
     fillPresets();
     applySelectedPreset("");
     setUniverse(STATE.universe, false);

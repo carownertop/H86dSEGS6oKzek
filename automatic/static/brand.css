@@ -817,6 +817,23 @@ table.flat tbody tr:nth-child(even) td:first-child { background: #fff; }
   font-size: 17px;
   font-weight: 800;
 }
+.cov-kpi--list { background: #eaf1fe; border-color: #a9c1f0; }
+.cov-kpi--elsewhere { background: #f2ecfb; border-color: #c3aee8; }
+.cov-kpi--missing { background: #fdecea; border-color: #f0aaa4; }
+.cov-kpi--list:hover, .cov-kpi--elsewhere:hover, .cov-kpi--missing:hover { box-shadow: 0 0 0 3px rgba(11, 28, 51, .08); }
+.cov-list-panel {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 0 0 10px;
+  max-height: 240px;
+  overflow: auto;
+  font-size: 13px;
+}
+.cov-list-panel--elsewhere { background: #f2ecfb; border-color: #c3aee8; }
+.cov-list-panel--missing { background: #fdecea; border-color: #f0aaa4; }
+.cov-list-panel ul { margin: 6px 0 0; padding-left: 18px; columns: 2; }
+.cov-list-panel li span { color: var(--muted); font-size: 12px; }
 .cov-toolbar {
   display: flex;
   flex-wrap: wrap;

@@ -8,10 +8,10 @@
   <link rel="icon" href="static/logo.png" />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <meta http-equiv="Cache-Control" content="no-cache" />
-  <link rel="stylesheet" href="static/brand.css?v=mark17" />
+  <link rel="stylesheet" href="static/brand.css?v=mark18" />
   <script>window.RTL_API = "https://141-105-71-134.sslip.io/a";</script>
   <script src="static/boot.js?v=hub7"></script>
-  <script src="static/coverage.js?v=22"></script>
+  <script src="static/coverage.js?v=27"></script>
   <script src="static/plan.js?v=9"></script>
   <script src="static/dept.js?v=2"></script>
 </head>
@@ -226,6 +226,27 @@
                   <button type="button" class="cov-mini" id="cov-preset-delete" hidden title="Удалить сохранённый срез">Удалить</button>
                 </div>
               </div>
+            </div>
+            <div class="build-toolbar-row" id="cov-list-row">
+              <div class="build-field build-field-grow">
+                <label class="field-label" for="cov-list">Отбор по списку обзвона</label>
+                <div class="cov-preset-row">
+                  <select id="cov-list"></select>
+                  <button type="button" class="cov-mini" id="cov-list-refresh" title="Зафиксировать состав плана обзвона на сегодня">Зафиксировать список сейчас</button>
+                </div>
+              </div>
+              <div class="build-field" id="cov-list-mode-field" hidden>
+                <label class="field-label" for="cov-list-mode">Показать</label>
+                <select id="cov-list-mode">
+                  <option value="in">Только клиентов из списка</option>
+                  <option value="out">Только вне списка</option>
+                  <option value="all">Всех, с пометкой «в списке»</option>
+                </select>
+              </div>
+            </div>
+            <div class="cov-picker-grid" id="cov-list-filters" hidden>
+              <div id="cov-list-mgr" class="cov-picker-host" data-name="cov-list-mgr" data-label="Менеджер списка"></div>
+              <div id="cov-list-prio" class="cov-picker-host" data-name="cov-list-prio" data-label="Приоритет в списке"></div>
             </div>
             <div class="filters filters-compact">
               <div>
